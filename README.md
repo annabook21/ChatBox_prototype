@@ -159,6 +159,12 @@ Your AWS credentials must have permissions to:
 
 The solution implements a fully serverless, multi-region architecture with automatic failover capabilities:
 
+![AWS Contextual Chatbot Architecture](https://via.placeholder.com/1200x800/ffffff/000000?text=AWS+Contextual+Chatbot+Architecture)
+
+## Architecture
+
+The solution implements a fully serverless, multi-region architecture with automatic failover capabilities:
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    Global CDN Layer                     │
@@ -691,3 +697,4 @@ AWS provides official reference architectures:
 - **Size**: 1920x1080 for full HD
 - **Background**: White or light gray
 - **Text**: Black, Arial, 12pt minimum
+
