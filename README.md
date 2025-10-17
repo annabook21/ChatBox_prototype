@@ -159,7 +159,7 @@ Your AWS credentials must have permissions to:
 
 The solution implements a fully serverless, multi-region architecture with automatic failover capabilities:
 
-![AWS Contextual Chatbot Architecture](images/contextual_chat_bot architecture.png)
+[<img src="images/contextual_chat_bot architecture.png">]
 
 ## Architecture
 
@@ -697,6 +697,7 @@ AWS provides official reference architectures:
 - **Size**: 1920x1080 for full HD
 - **Background**: White or light gray
 - **Text**: Black, Arial, 12pt minimum
+
 
 
 
