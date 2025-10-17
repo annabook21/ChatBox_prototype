@@ -1,149 +1,316 @@
-# AWS Contextual Chatbot Demo with Amazon Bedrock
+# AWS Contextual Chatbot with Amazon Bedrock Knowledge Bases
 
-This repository contains a demonstration of a contextual chatbot using Amazon Bedrock Knowledge Bases. It provides a serverless architecture that is easily deployable with the AWS CDK.
+## Overview
 
----
+The AWS Contextual Chatbot is a production-ready, enterprise-grade Retrieval-Augmented Generation (RAG) solution built on AWS serverless infrastructure. The system enables organizations to query their document repositories using natural language, receiving accurate, contextual answers with source citations.
 
-⚠️ **CRITICAL PRE-DEPLOYMENT STEP: ENABLE BEDROCK MODEL ACCESS**
---------------------------------------------------------------------
+This solution demonstrates best practices for building secure, scalable, and cost-effective AI-powered applications using Amazon Bedrock Knowledge Bases, Lambda functions, and multi-region disaster recovery.
 
-Before you deploy this application, you **MUST** enable access to the required foundation models in your AWS account. **Failure to do so will cause the deployment to fail with an error.**
+⚠️ **Important**
+- Running this code might result in charges to your AWS account.
+- We recommend that you grant your code least privilege. At most, grant only the minimum permissions required to perform the task.
+- This code is not tested in every AWS Region. For more information, see [AWS Regional Services](https://aws.amazon.com/about-aws/global-infrastructure/regional-product-services/).
 
-1.  Navigate to the **[Amazon Bedrock console](https://console.aws.amazon.com/bedrock/home)** in your AWS account.
-2.  In the bottom-left corner, click on **Model access**.
-3.  Click **Manage model access** in the top-right.
-4.  Enable access for the following two models:
-    *   ✅ **Titan Embeddings G1 - Text:** `amazon.titan-embed-text-v1` (Used for the Knowledge Base)
-    *   ✅ **Anthropic Claude 3 Sonnet:** `anthropic.claude-3-sonnet-20240229-v1:0` (Used for generating answers)
+## Prerequisites
 
-Click "Save changes" and wait for access to be granted before proceeding with deployment.
+Before deploying this solution, ensure you have the following:
 
----
+- AWS CLI installed and configured with appropriate permissions
+- Node.js ≥ 22.9.0 and npm
+- AWS CDK CLI v2
+- Docker Desktop installed and running
+- Access to Amazon Bedrock foundation models in your target regions
+
+### Required AWS Permissions
+
+Your AWS credentials must have permissions to:
+- Create and manage CloudFormation stacks
+- Deploy Lambda functions and API Gateway
+- Create S3 buckets and configure CloudFront
+- Access Amazon Bedrock services
+- Create IAM roles and policies
+
+### Bedrock Model Access
+
+**CRITICAL**: Before deployment, enable access to these foundation models in the Amazon Bedrock console:
+
+1. Navigate to the [Amazon Bedrock console](https://console.aws.amazon.com/bedrock/home)
+2. Click **Model access** in the bottom-left corner
+3. Click **Manage model access** in the top-right
+4. Enable access for:
+   - **Titan Embeddings G1 - Text**: `amazon.titan-embed-text-v1` (for Knowledge Base)
+   - **Anthropic Claude 3 Sonnet**: `anthropic.claude-3-sonnet-20240229-v1:0` (for answer generation)
+
+**Note**: Enable model access in **both** us-west-2 and us-east-1 regions for disaster recovery.
+
+## Assumptions & Design Decisions
+
+### Business Context Assumptions
+
+**Document Volume & Types**
+- Expected document volume: 100-10,000 documents per knowledge base
+- Document types: PDF, TXT, DOCX, MD, HTML (common enterprise formats)
+- Average document size: 1-50 pages per document
+- Update frequency: Weekly to monthly document refreshes
+
+**Usage Patterns**
+- Concurrent users: 10-100 simultaneous users
+- Query volume: 100-1,000 queries per day
+- Query complexity: Multi-sentence questions requiring document synthesis
+- Response time requirement: < 10 seconds for complex queries
+
+**Data & Compliance**
+- Data sensitivity: Internal enterprise documents (not public data)
+- Compliance requirements: SOC 2, GDPR-ready architecture
+- Data retention: 7 years for audit purposes
+- Access control: Role-based access (future enhancement)
+
+### Technical Design Decisions
+
+**Architecture Pattern: Serverless-First**
+- **Decision**: Fully serverless over containerized architecture
+- **Rationale**: 
+  - Zero infrastructure management overhead
+  - Automatic scaling without capacity planning
+  - Pay-per-use cost model aligns with variable workloads
+  - Faster time-to-market for MVP deployment
+
+**RAG Implementation: Manual Two-Step Process**
+- **Decision**: Separate Retrieve + InvokeModel calls vs RetrieveAndGenerate API
+- **Rationale**: 
+  - RetrieveAndGenerate doesn't support Bedrock Guardrails (critical for enterprise)
+  - Provides finer control over the RAG pipeline
+  - Enables custom prompt engineering and context manipulation
+  - Better error handling and retry logic
+
+**Document Chunking Strategy: 500 Tokens, 20% Overlap**
+- **Decision**: Fixed-size chunks with significant overlap
+- **Rationale**:
+  - 500 tokens ≈ 1-2 paragraphs (optimal semantic unit)
+  - 20% overlap prevents context loss at boundaries
+  - Balances precision vs. recall in retrieval
+  - Compatible with Claude 3 Sonnet's context window
+
+**Vector Store: Bedrock-Managed OpenSearch Serverless**
+- **Decision**: Managed service over self-hosted alternatives
+- **Rationale**:
+  - Zero operational overhead (no cluster management)
+  - Automatic scaling and cost optimization
+  - Tight integration with Bedrock Knowledge Bases
+  - No additional infrastructure to monitor or maintain
+
+**Disaster Recovery: Manual Backend Failover**
+- **Decision**: Manual config.json update vs automatic DNS failover
+- **Rationale**:
+  - Simpler implementation for MVP (no custom domain required)
+  - Manual control over failover timing and validation
+  - Cost-effective (no Route 53 health checks needed)
+  - Can be enhanced with automatic DNS failover post-MVP
+
+**Frontend Architecture: Static SPA on S3 + CloudFront**
+- **Decision**: Static hosting over Amplify or EC2
+- **Rationale**:
+  - Simplest deployment model with global CDN
+  - Automatic HTTPS and edge caching
+  - Minimal cost and operational overhead
+  - Easy to implement origin failover for DR
+
+### Operational Assumptions
+
+**Monitoring & Alerting**
+- CloudWatch native monitoring sufficient for initial deployment
+- SNS email notifications for critical alerts
+- No third-party monitoring tools required initially
+- 24/7 monitoring not required (business hours support acceptable)
+
+**Maintenance Windows**
+- Monthly maintenance windows acceptable
+- Zero-downtime deployments via blue-green approach
+- Emergency patches during business hours with 2-hour advance notice
+
+**Support Model**
+- AWS Support Center for infrastructure issues
+- Internal team handles application-level support
+- No dedicated DevOps team required initially
+- Documentation and runbooks sufficient for L1 support
+
+**Cost Optimization**
+- Pay-per-use model acceptable for variable workloads
+- No upfront capacity reservations required
+- Monthly cost reviews and optimization cycles
+- Right-sizing recommendations based on usage patterns
+
+### Constraints & Limitations
+
+**Current Limitations**
+- No user authentication (planned for Phase 2)
+- No multi-tenant support (single knowledge base per deployment)
+- Manual document upload only (no API-based ingestion)
+- English language only (no multi-language support)
+
+**Future Enhancements**
+- Cognito integration for user management
+- Multi-knowledge base support
+- API-based document ingestion
+- Multi-language document processing
+- Custom domain with automatic DNS failover
 
 ## Architecture
 
-The architecture is fully serverless, event-driven, and **multi-region with automatic failover**:
+The solution implements a fully serverless, multi-region architecture with automatic failover capabilities:
 
-```mermaid
-graph TD
-    subgraph "Global CDN Layer"
-        User[<fa:fa-user> User] -->|1. HTTPS| CF[<fa:fa-cloud> CloudFront]
-        CF -->|Primary Origin| FE_S3_1[<fa:fa-box> S3 Frontend W2]
-        CF -.->|Failover on 5xx| FE_S3_2[<fa:fa-box> S3 Frontend E1]
-    end
-
-    subgraph "Primary Region - us-west-2"
-        User -->|2. API Requests| APIGW1[<fa:fa-server> API Gateway]
-        APIGW1 -->|/docs| QueryLambda1[<fa:fa-bolt> Query Lambda]
-        APIGW1 -->|/upload| UploadLambda1[<fa:fa-bolt> Upload Lambda]
-        APIGW1 -->|/ingestion-status| StatusLambda1[<fa:fa-bolt> Status Lambda]
-        APIGW1 -->|/health| HealthLambda1[<fa:fa-heartbeat> Health Lambda]
-        
-        QueryLambda1 -->|Retrieve & Generate| BedrockKB1[<fa:fa-brain> Bedrock KB]
-        DS_S3_1[<fa:fa-box> Docs S3] -->|ObjectCreated| IngestLambda1[<fa:fa-bolt> Ingest Lambda]
-        IngestLambda1 -->|Start Job| BedrockKB1
-        
-        DS_S3_1 -.->|Cross-Region Replication| DS_S3_2
-    end
-
-    subgraph "Failover Region - us-east-1"
-        User -.->|Manual switch| APIGW2[<fa:fa-server> API Gateway]
-        APIGW2 -.->|/docs| QueryLambda2[<fa:fa-bolt> Query Lambda]
-        APIGW2 -.->|/health| HealthLambda2[<fa:fa-heartbeat> Health Lambda]
-        
-        QueryLambda2 -.->|Retrieve & Generate| BedrockKB2[<fa:fa-brain> Bedrock KB]
-        DS_S3_2[<fa:fa-box> Docs S3 Replica]
-    end
-
-    subgraph "Monitoring & Observability"
-        CW[<fa:fa-chart-line> CloudWatch Dashboard] -->|Monitors| APIGW1
-        CW -->|Monitors| QueryLambda1
-        CW -->|Monitors| IngestLambda1
-        Alarms[<fa:fa-bell> CloudWatch Alarms] -->|Alerts| SNS[<fa:fa-envelope> SNS Topic]
-        DLQ[<fa:fa-warning> Dead Letter Queue]
-    end
-
-    style User fill:#f9f,stroke:#333,stroke-width:2px
-    style CF fill:#8C4FFF,stroke:#333,stroke-width:2px
-    style CW fill:#FF9900,stroke:#333,stroke-width:2px
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Global CDN Layer                     │
+│  CloudFront Distribution (Origin Group Failover)        │
+│  ├─ Primary Origin: S3 Frontend (us-west-2)            │
+│  └─ Failover Origin: S3 Frontend (us-east-1)           │
+└─────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────┐
+│                  Primary Region (us-west-2)             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │API Gateway  │  │Lambda       │  │Bedrock      │     │
+│  │(REST API)   │─▶│Functions    │─▶│Knowledge    │     │
+│  │             │  │(5 functions)│  │Base         │     │
+│  └─────────────┘  └─────────────┘  └─────────────┘     │
+│                              │                         │
+│                              ▼                         │
+│                    ┌─────────────┐                     │
+│                    │S3 Documents │                     │
+│                    │(Versioned)  │                     │
+│                    └─────────────┘                     │
+└─────────────────────────────────────────────────────────┘
+                              │
+                              ▼ (Cross-Region Replication)
+┌─────────────────────────────────────────────────────────┐
+│                 Failover Region (us-east-1)             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │API Gateway  │  │Lambda       │  │Bedrock      │     │
+│  │(Standby)    │  │Functions    │  │Knowledge    │     │
+│  │             │  │(Standby)    │  │Base         │     │
+│  └─────────────┘  └─────────────┘  └─────────────┘     │
+└─────────────────────────────────────────────────────────┘
 ```
 
----
+### Core Components
 
-## Core Components
+#### Frontend Layer
+- **CloudFront Distribution**: Global CDN with origin failover (automatic < 1 second RTO)
+- **S3 Frontend Buckets**: Private buckets with Origin Access Control (OAC) in both regions
+- **React Application**: Modern web interface with drag-and-drop file uploads and real-time chat
 
-### 1. Frontend
+#### API Layer
+- **API Gateway**: RESTful API with CORS, throttling, and usage plans
+- **Endpoints**:
+  - `POST /docs`: Submit queries to the chatbot
+  - `POST /upload`: Generate pre-signed URLs for file uploads
+  - `GET /ingestion-status`: Check document processing status
+  - `GET /health`: Health check for monitoring and failover
 
-- **CloudFront Distribution (`AWS::CloudFront::Distribution`):** Global CDN entry point serving the React app from two private S3 REST origins via OAC. Uses an origin group to fail over from the primary S3 origin (us-west-2) to the failover S3 origin (us-east-1) on 5xx.
-- **Frontend S3 Buckets (`AWS::S3::Bucket`):** Private buckets (in each region) that store static assets. Access is restricted to CloudFront via Origin Access Control (OAC). No website endpoints or public access are used.
+#### Compute Layer (5 Lambda Functions)
+- **Query Lambda**: Core RAG orchestration (Retrieve + Generate with Claude 3 Sonnet)
+- **Upload Lambda**: Generate pre-signed S3 URLs for direct file uploads
+- **Ingestion Lambda**: Triggered by S3 events to start Bedrock ingestion jobs
+- **Status Lambda**: Poll Bedrock for ingestion job status
+- **Health Lambda**: Test Bedrock connectivity for monitoring
 
-### 2. API Gateway
+#### AI/ML Services
+- **Bedrock Knowledge Base**: Automated document chunking (500 tokens, 20% overlap)
+- **Titan Embeddings**: Vectorization of document chunks
+- **Claude 3 Sonnet**: Answer generation with context from retrieved chunks
+- **Bedrock Guardrails**: Content filtering for harmful content
 
-- **API Gateway (`AWS::ApiGateway::RestApi`):** Provides a RESTful API endpoint for the frontend to communicate with the backend. It includes throttling and usage plans for basic protection.
-  - **`/docs` (POST):** The primary endpoint for submitting user queries to the chatbot.
-  - **`/upload` (POST):** Generates pre-signed URLs for direct file uploads to S3.
-  - **`/ingestion-status` (GET):** Returns the status of document ingestion jobs.
-  - **`/health` (GET):** Health check endpoint that tests Bedrock KB connectivity. Can be used for monitoring or custom failover logic.
+#### Storage
+- **S3 Documents Bucket**: Versioned, encrypted storage with lifecycle policies
+- **OpenSearch Serverless**: Vector store for semantic search (managed by Bedrock)
 
-### 3. Backend Logic (5 Lambda Functions)
+#### Monitoring & Observability
+- **CloudWatch Dashboard**: Real-time metrics for API Gateway, Lambda, and Bedrock
+- **CloudWatch Alarms**: Automated alerts for errors and system health
+- **X-Ray Tracing**: Distributed tracing across all services
+- **SNS Notifications**: Alert delivery for operational teams
 
-- **Query Lambda (`AWS::Lambda::Function`):** The core of the chatbot's logic. It's invoked by the API Gateway and is responsible for:
-  - Receiving the user's query.
-  - Calling the Bedrock `Retrieve` API to get relevant context from the knowledge base.
-  - Calling the Bedrock `InvokeModel` API with Claude 3 Sonnet to generate an answer.
-  - Applying Bedrock Guardrails for content safety (input and output filtering).
-  - Returning the response, including citations, to the user.
-  
-- **Upload Lambda (`AWS::Lambda::Function`):** Generates pre-signed S3 URLs to allow the frontend to upload files directly to the Docs S3 Bucket without proxying through the backend.
+## Security Architecture
 
-- **Ingestion Lambda (`AWS::Lambda::Function`):** Triggered by S3 `PUT` events on the Docs S3 Bucket. This function starts an ingestion job in Bedrock, which processes the new document and adds it to the knowledge base.
+### Data Protection
+- **Encryption at Rest**: All S3 buckets use S3-managed encryption
+- **Encryption in Transit**: HTTPS enforcement via CloudFront and API Gateway
+- **Versioning**: S3 versioning enabled for point-in-time recovery
+- **Access Controls**: Private S3 buckets with OAC, no public access
 
-- **Ingestion Status Lambda (`AWS::Lambda::Function`):** Polls Bedrock to check the status of ingestion jobs and reports back to the frontend.
+### Content Safety
+- **Bedrock Guardrails**: Multi-category content filtering (sexual, violence, hate, insults)
+- **Input Validation**: API Gateway request validation and throttling
+- **Least Privilege**: IAM roles with minimal required permissions
 
-- **Health Check Lambda (`AWS::Lambda::Function`):** Tests actual Bedrock Knowledge Base connectivity and returns system health status for monitoring.
+### Network Security
+- **Private S3 Origins**: No direct S3 access, only via CloudFront OAC
+- **CORS Configuration**: Restricted cross-origin requests
+- **VPC Integration**: Ready for VPC deployment if required
 
-### 4. Data Ingestion & Knowledge Base
+## Disaster Recovery & Business Continuity
 
-- **Docs S3 Bucket (`AWS::S3::Bucket`):** The primary data source for the knowledge base. When a user uploads a file to this bucket, it triggers the ingestion process. It is configured with versioning for data protection and optional cross-region replication for DR.
-- **Bedrock Knowledge Base (`Bedrock::VectorKnowledgeBase`):** The heart of the RAG pipeline. It automatically chunks documents into 500-token segments with 20% overlap, vectorizes them using Titan Embeddings, and stores them in a vector store for efficient retrieval.
+### Frontend Failover (Automatic)
+- **Method**: CloudFront origin group with automatic failover
+- **Detection**: Instant (5xx errors from primary S3 bucket)
+- **RTO**: < 1 second (automatic)
+- **User Impact**: None (same CloudFront URL)
 
-### 5. Security & Content Safety
+### Backend API Failover (Manual)
+- **Method**: Runtime configuration via config.json update
+- **Detection**: Manual monitoring or custom alerting
+- **RTO**: Manual (minutes to hours depending on response time)
+- **Process**: Update config.json in both S3 frontend buckets, invalidate CloudFront cache
 
-- **Bedrock Guardrails (`AWS::Bedrock::CfnGuardrail`):** Content filtering for harmful or inappropriate inputs and outputs. Configured with HIGH sensitivity for sexual content, violence, and hate speech, and MEDIUM for insults.
-- **Model Access Check (`AWS::Lambda::Function`):** A pre-flight Lambda that validates Bedrock model access before deployment to prevent deployment failures.
-- **API Usage Plan:** Throttling limits (100 req/sec rate, 200 burst) for basic API protection.
+### Data Synchronization
+- **Method**: S3 Cross-Region Replication (CRR) - manual setup required
+- **RPO**: ~15 minutes (automatic background sync)
+- **Scope**: Documents bucket from us-west-2 → us-east-1
 
-### 6. Monitoring & Observability
+## Performance & Scalability
 
-- **CloudWatch Dashboard (`AWS::CloudWatch::Dashboard`):** Interactive dashboard named `contextual-chatbot-metrics` with 5 widget rows:
-  - API Gateway performance (requests and errors)
-  - Lambda function errors (Query and Ingestion)
-  - Lambda duration metrics
-  - Dead Letter Queue message count
-  - Lambda invocation counts
-- **CloudWatch Alarms:** Three alarms for monitoring system health:
-  - Query Lambda errors (>5 errors in 5 minutes)
-  - Ingestion Lambda errors (>3 errors in 5 minutes)
-  - Dead Letter Queue messages (any message appears)
-- **SNS Topic (`AWS::SNS::Topic`):** Publishes alerts when alarms trigger.
-- **Dead Letter Queue (`AWS::SQS::Queue`):** Captures failed ingestion events for manual review and retry.
-- **X-Ray Tracing:** Enabled on all Lambda functions for distributed tracing and performance analysis.
+### Auto-scaling Capabilities
+- **Lambda**: Automatic scaling based on request volume
+- **API Gateway**: Handles up to 10,000 requests per second
+- **CloudFront**: Global edge caching for static content
+- **Bedrock**: Managed service with automatic scaling
 
-### 7. Disaster Recovery & High Availability
+### Performance Optimizations
+- **Edge Caching**: Static assets cached at 450+ CloudFront edge locations
+- **Connection Pooling**: Lambda functions optimized for AWS service connections
+- **Chunking Strategy**: 500-token chunks with 20% overlap for optimal retrieval
 
-- **Frontend Failover (CloudFront Origin Group):** Frontend remains on a single CloudFront URL. If the primary S3 origin (us-west-2) returns 5xx, CloudFront automatically retries against the failover S3 origin (us-east-1) and serves content without DNS changes. **RTO: < 1 second (automatic).**
-- **Backend API Failover (Manual):** Both regions deploy full backend stacks with `/health` endpoints. To fail over the backend API, manually update `config.json` in both S3 frontend buckets to point to the failover API URL, then invalidate CloudFront cache. **RTO: Manual (minutes to hours depending on response time).**
-- **Document Replication:** S3 Cross-Region Replication ensures documents uploaded to primary are automatically copied to failover. **RPO: 0-15 minutes.**
+## Cost Analysis
 
----
+### Monthly Cost Estimates (US East/West)
+Based on moderate usage (1,000 queries/month, 10GB documents):
+
+| Service | Primary Region | Failover Region | Monthly Cost |
+|---------|---------------|-----------------|--------------|
+| Lambda (Compute) | $2-5 | $1-3 | $3-8 |
+| API Gateway | $1-3 | $0.50-1.50 | $1.50-4.50 |
+| S3 Storage | $0.25-0.50 | $0.25-0.50 | $0.50-1.00 |
+| CloudFront | $1-2 | - | $1-2 |
+| Bedrock (Titan) | $0.50-1.50 | $0.50-1.50 | $1-3 |
+| Bedrock (Claude) | $5-15 | $5-15 | $10-30 |
+| **Total** | | | **$17-49** |
+
+*Note: Failover region costs only apply during active failover scenarios.*
+
+### Cost Optimization Recommendations
+- Enable S3 lifecycle policies for document retention
+- Monitor Bedrock usage and optimize chunk sizes
+- Use CloudWatch to track and optimize Lambda cold starts
+- Consider Reserved Capacity for predictable workloads
 
 ## Deployment
 
-### Multi-Region Deployment with CDK 🚀
-
-**CDK automatically deploys to both us-west-2 (primary) and us-east-1 (failover)** for disaster recovery:
+### Multi-Region Deployment
 
 ```bash
+# Navigate to backend directory
 cd backend
 
 # Bootstrap both regions (one-time setup)
@@ -151,140 +318,123 @@ ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 cdk bootstrap aws://$ACCOUNT/us-west-2
 cdk bootstrap aws://$ACCOUNT/us-east-1
 
-# Deploy to BOTH regions with a single command
+# Deploy to both regions
 cdk deploy --all
 ```
 
-This deployment:
-- ✅ Creates `BackendStack-Primary` in us-west-2 with CloudFront distribution
-- ✅ Creates `BackendStack-Failover` in us-east-1
-- ✅ CloudFront automatically fails over frontend between S3 origins on 5xx
-- ✅ Backend API failover requires manual config.json update
-
-**See [DISASTER_RECOVERY_SETUP.md](DISASTER_RECOVERY_SETUP.md) for complete DR details and optional Route 53 DNS failover setup.**
-
----
+This creates:
+- `BackendStack-Primary` in us-west-2 with CloudFront distribution
+- `BackendStack-Failover` in us-east-1 with standby resources
 
 ### Single-Region Deployment (Development)
 
-### Prerequisites
+```bash
+# Set target region
+export AWS_DEFAULT_REGION=us-west-2
 
-Make sure you have these installed/configured first:
+# Bootstrap (one-time)
+cdk bootstrap aws://$ACCOUNT/us-west-2
 
-* **AWS CLI** installed and configured (`aws configure`) with valid access key/secret key.
-
-  * Verify with: `aws sts get-caller-identity`
-* **Node.js** ≥ 22.9.0 and npm.
-* **AWS CDK CLI**:
-
-  ```bash
-  npm install -g aws-cdk
-  ```
-* **Docker Desktop** installed and running (required for bundling Lambda assets).
-* **Set your region** (supports `us-west-2` or `us-east-1`):
-
-  ```bash
-  export AWS_DEFAULT_REGION=us-west-2  # or us-east-1
-  ```
-
-### Steps
-
-1. **Clone the repository**
-
-   ```bash
-   git clone <repository-url>
-   cd <repository-name>/backend
-   ```
-2. **Install dependencies**
-
-   ```bash
-   npm install
-   npm install aws-cdk-lib constructs typescript ts-node --save-dev
-   ```
-3. **Bootstrap your AWS account**
-   *(only needed once per account/region)*
-
-   ```bash
-   # For us-west-2
-   cdk bootstrap aws://<your-account-id>/us-west-2
-   
-   # OR for us-east-1
-   cdk bootstrap aws://<your-account-id>/us-east-1
-   ```
-
-   🔹 If you see `StagingBucket already exists` errors, delete the old bucket `cdk-hnb659fds-assets-<account>-<region>` in S3 and re-run bootstrap.
-4. **Synthesize the stack**
-
-   ```bash
-   cdk synth
-   ```
-
-   This outputs the CloudFormation template so you can preview what will be deployed.
-### 5. CRITICAL STEP 5: Enable Bedrock Model Access
-
-For the chatbot to work, you MUST enable access to the specific foundation models in the Amazon Bedrock console.
-
-1.  Navigate to the [Amazon Bedrock console](https://console.aws.amazon.com/bedrock/home) in your AWS account.
-2.  In the bottom-left corner, click on **Model access**.
-3.  Click **Manage model access** in the top-right.
-4.  Enable access for the following models:
-    *   **Titan Embeddings G1 - Text:** `amazon.titan-embed-text-v1` (for the Knowledge Base)
-    *   **Anthropic Claude 3 Sonnet:** `anthropic.claude-3-sonnet-20240229-v1:0` (for generating answers)
-
-**FAILURE TO ENABLE THESE MODELS WILL CAUSE 500 ERRORS.**
+# Deploy
+cdk deploy BackendStack-Primary
+```
 
 ## Usage
 
-1.  After a successful `cdk deploy`, the CloudFormation outputs will display the `CloudFrontURL`.
-2.  Navigate to this URL in your browser.
-3.  The API URL is **auto-configured**. The UI will show "API URL (Auto-configured)".
-4.  Use the "Upload Documents" section to upload one or more files (PDF, TXT, DOCX, MD) to the knowledge base.
-5.  Wait for the ingestion status to show "✅ Ingestion complete!". It may take an additional minute for the context to become available.
-6.  Ask a question related to the documents you uploaded.
+### Initial Setup
+1. Navigate to the CloudFront URL provided in deployment outputs
+2. Upload documents using the file upload interface
+3. Wait for ingestion status to show "Complete"
+4. Begin querying your documents
 
-The chatbot will now answer based on the context provided in your documents.
+### API Usage Examples
+
+#### Submit a Query
+```bash
+curl -X POST https://your-api-gateway-url/prod/docs \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What are the key features of this product?"}'
+```
+
+#### Check Ingestion Status
+```bash
+curl https://your-api-gateway-url/prod/ingestion-status
+```
+
+#### Health Check
+```bash
+curl https://your-api-gateway-url/prod/health
+```
+
+## Monitoring & Operations
+
+### CloudWatch Dashboard
+Access the dashboard named `contextual-chatbot-metrics-{region}` to monitor:
+- API Gateway request counts and error rates
+- Lambda function performance and errors
+- Bedrock service health
+- Dead Letter Queue message counts
+
+### Key Metrics to Monitor
+- **API Gateway**: 4xx/5xx error rates, request latency
+- **Lambda**: Error rates, duration, cold starts
+- **Bedrock**: Retrieval latency, generation latency
+- **S3**: Request counts, error rates
+
+### Alerting
+Configured alarms trigger SNS notifications for:
+- Query Lambda errors (>5 in 5 minutes)
+- Ingestion Lambda errors (>3 in 5 minutes)
+- Dead Letter Queue messages (any messages)
 
 ## Troubleshooting
 
-### Deployment Issues
+### Common Issues
 
-* **Error: `Cannot connect to the Docker daemon`**
-  → Make sure Docker Desktop is installed and running. Test with `docker ps`.
+#### Deployment Failures
+- **Bedrock Model Access**: Ensure model access is enabled in both regions
+- **Docker Issues**: Verify Docker Desktop is running
+- **Permissions**: Check IAM permissions for CDK deployment
 
-* **Error: `SSM parameter /cdk-bootstrap/... not found`**
-  → Run `cdk bootstrap aws://<account>/<region>` (replace with your region).
+#### Runtime Issues
+- **"Model not accessible"**: Verify Bedrock model access in target region
+- **Upload failures**: Check S3 bucket permissions and CORS configuration
+- **Query timeouts**: Monitor Lambda duration and Bedrock service limits
 
-* **Error: `StagingBucket already exists` during bootstrap**
-  → Delete the old S3 bucket `cdk-hnb659fds-assets-<account>-<region>` or rerun bootstrap with `--bootstrap-bucket-name`.
+### Debugging Commands
+```bash
+# Check Lambda logs
+aws logs tail /aws/lambda/query-bedrock-llm-{region} --follow
 
-* **Multi-region deployment**
-  → CDK automatically deploys to BOTH us-west-2 (primary) and us-east-1 (failover):
+# Test Bedrock connectivity
+aws bedrock list-foundation-models --region us-west-2
 
-  ```bash
-  cd backend
-  cdk deploy --all
-  ```
-  
-  This creates `BackendStack-Primary` (us-west-2) and `BackendStack-Failover` (us-east-1).
-  
-  ⚠️ **Important**: Enable Bedrock model access in BOTH regions before deploying.
+# Verify S3 bucket access
+aws s3 ls s3://your-docs-bucket-name
+```
 
-### Runtime Issues
+## Additional Resources
 
-* **Error: "You don't have access to the model"** or **"ValidationException: Invalid input or configuration"**
-  → Enable Bedrock model access (see step 5 above). The **Titan Embeddings** model is **required** for document ingestion!
+- [Amazon Bedrock Developer Guide](https://docs.aws.amazon.com/bedrock/latest/userguide/)
+- [AWS Lambda Developer Guide](https://docs.aws.amazon.com/lambda/latest/dg/)
+- [Amazon S3 Developer Guide](https://docs.aws.amazon.com/s3/latest/userguide/)
+- [AWS CDK Developer Guide](https://docs.aws.amazon.com/cdk/latest/guide/)
+- [Amazon Bedrock API Reference](https://docs.aws.amazon.com/bedrock/latest/APIReference/)
 
-* **Chatbot returns "Server side error"**
-  → Check CloudWatch logs: `aws logs tail /aws/lambda/query-bedrock-llm --follow --region <your-region>`
-  → Ensure you have uploaded documents and they have been processed (wait 1-2 minutes after upload)
+## Support & Maintenance
 
-* **File upload doesn't work**
-  → Check browser console for errors
-  → Verify the upload Lambda exists: `aws lambda get-function --function-name generate-upload-url --region <your-region>`
+### Operational Procedures
+- Monitor CloudWatch dashboards daily
+- Review SNS alerts promptly
+- Test failover procedures quarterly
+- Update Bedrock models as new versions become available
 
-* **Documents not appearing in knowledge base**
-  → Check ingestion logs: `aws logs tail /aws/lambda/start-ingestion-trigger --follow --region <your-region>`
-  → Verify Titan Embeddings model access is enabled
+### Maintenance Windows
+- **Scheduled**: Monthly during maintenance windows
+- **Emergency**: As needed for critical issues
+- **Updates**: Follow AWS service announcements for new features
 
-
-
+### Support Contacts
+- **AWS Support**: Use AWS Support Center for service issues
+- **Documentation**: Refer to AWS documentation for service-specific guidance
+- **Community**: AWS re:Post for community support and best practices
